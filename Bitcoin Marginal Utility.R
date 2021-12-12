@@ -9,6 +9,11 @@
 ################################################################################
 library(dplyr)
 library(lubridate)
+library(invgamma)
+library(fitdistrplus)
+library(foreach)
+library(doParallel)
+
 
 ################################################################################
 # Utility Functions
@@ -30,18 +35,25 @@ difficulty <- function(nbits) {
   return(max(difficulty, 1))
 }
 
-hash_rate <- function(nbits,delta_t) {
+hash_rate <- function(nbits, delta_t) {
   # HR = D / T * 2 ^ 32, where D is the difficulty and T is the time between
   # blocks.
   # This function returns the hash rate as TH/s
   return(difficulty(nbits) / delta_t * 2 ^ 32 / 10 ^ 12)
 }
 
-miner_subsidy <- function(height) {
+sats_to_block <- function(height) {
   #Bitcoin Miner Subsidy as a function of block height
   i <- floor(height / 210000)
   if (i <= 32) {
-    return(floor(50e8 / 2 ^ i))
+    total <- 0
+    if ( i > 0) {
+      for (j in 0:(i - 1)) {
+        total <- total + floor(50e8 / 2 ^ j) * 210000
+      }
+    }
+    total <- total + floor(50e8 / 2 ^ i) * (height + 1 - 210000 * i)
+    return(total)
   }
   return(0)
 }
@@ -75,8 +87,8 @@ headers <- DBI::dbGetQuery(con,
           block_nbits,
           prev_block_id
         FROM block",
-        "WHERE block_height < 400",
-        # "WHERE block_height < ", latest_block,
+        # "WHERE block_height < 200000 AND block_height > 195000 ",
+        "WHERE block_height < ", latest_block,
         "ORDER BY block_height ASC"))
 
 txouts <- DBI::dbGetQuery(con,
@@ -87,8 +99,8 @@ txouts <- DBI::dbGetQuery(con,
           txout_pos,
           txout_value
         FROM txout_detail",
-        "WHERE block_height < 400",
-        # "WHERE block_height < ", latest_block,
+        # "WHERE block_height < 200000 AND block_height > 195000 ",
+        "WHERE block_height < ", latest_block,
         "ORDER BY block_height, txout_pos ASC"))
 
 
@@ -102,7 +114,22 @@ txouts$block_id <- as.integer(txouts$block_id)
 txouts$in_longest <- as.logical(txouts$in_longest)
 txouts$txout_pos <- as.integer(txouts$txout_pos)
 
-# rm(con, delta_t, i)
+# Sort based upon longest chain and remove orphan/forks
+n_blocks <- length(headers$block_id)
+longest_id <- integer(n_blocks)
+longest_id[1]  <- headers$block_id[
+  !(headers$block_id %in% headers$prev_block_id)]
+longest_id[1] <- which(headers$block_id == longest_id[1])
+
+for (i in 2:n_blocks) {
+  longest_id[i] <- which(
+    headers$block_id == headers$prev_block_id[longest_id[i - 1]])
+}
+
+longest_id <- rev(longest_id)
+headers <- headers[longest_id, ]
+
+# rm(con, i, longest_id)
 
 
 ################################################################################
@@ -128,25 +155,47 @@ lines(hash[,1], gen_logistic(c(0.01,coef(params_hash)), hash[, 1]), col = 1)
 headers[ , "total_sats"] <- numeric()
 headers[ , "coinbase"] <- numeric()
 headers[ , "hash_rate"] <- numeric()
+headers[ , "delta_t"] <- numeric()
 headers[ , "marginal_utility"] <- numeric()
 headers$year <- headers$block_ntime %>% as_datetime() %>% decimal_date()
 
-for (i in 1:length(headers$block_id)) {
-  headers$total_sats[i] <- miner_subsidy(headers$block_height[i])
-  headers$coinbase[i] <- sum(subset(
-    txouts, txouts$block_id == headers$block_id[i] & txouts$txout_pos == 0)[,4])
-  if (i > 1) {
-    delta_t <- headers$block_ntime[i] - headers$block_ntime[i - 1]
-    headers$hash_rate[i] <- hash_rate(headers$block_nbits[i], delta_t)
-    headers$total_sats[i] <- headers$total_sats[i] + headers$total_sats[i - 1]
-    headers$marginal_utility[i] <- headers$hash_rate[i] * 600 * 1e8 /
-      gen_logistic(c(0.01,coef(params_hash)), headers$year[i]) /
-      headers$coinbase[i]
+# Intitialize parallelization
+ncores = detectCores() - 1
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+
+headers <- foreach(
+  block = iter(headers, by = "row"),
+  .export = c("headers", "txouts", "params_hash"),
+  .combine = rbind) %dopar% {
+    i <- which(headers$block_id == block$block_id)
+    block$total_sats <- sats_to_block(block$block_height)
+    block$coinbase <- sum(subset(
+      txouts,txouts$block_id == block$block_id & txouts$txout_pos == 0)[,4])
+
+    if (i > 1) {
+      # Median Time Past Rule time difference
+      block$delta_t <- (block$block_ntime - median(
+        headers$block_ntime[max((i - 11), 1):(i - 1)])) / min(6, i / 2)
+
+      block$hash_rate <- hash_rate(block$block_nbits, block$delta_t)
+      block$marginal_utility <- block$hash_rate * 600 * 1e8 /
+        gen_logistic(c(0.01,coef(params_hash)), block$year) / block$coinbase
+    }
+
+    block
   }
-}
 
-plot(headers$year, headers$hash_rate, log = "y",
-     xlab = "year", ylab = "MH/J")
+stopCluster(cl)
 
-plot(headers$year, headers$marginal_utility, log = "y",
-     xlab = "year", ylab = "MJ/BTC")
+# plot(headers$year, headers$hash_rate, log = "y",
+#      xlab = "year", ylab = "MH/J")
+#
+# plot(headers$year, headers$marginal_utility, log = "y",
+#      xlab = "year", ylab = "MJ/BTC")
+#
+# fit <- fitdist(headers$marginal_utility[-1:-11], distr = "invgamma", method = "mle")
+# summary(fit)
+# plot(fit)
+
