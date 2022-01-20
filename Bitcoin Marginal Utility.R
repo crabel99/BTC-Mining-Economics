@@ -3,6 +3,8 @@
 #
 # The Bitcoin blockchain is parsed using Blockchain Postgres Import:
 # https://github.com/blkchain/blkchain
+#
+# Bitcoin Price History: https://fred.stlouisfed.org/series/CBBTCUSD#0
 
 ################################################################################
 # Libraries
@@ -187,6 +189,8 @@ tempData <- mice(temp, m = 5, maxit = 50, meth = 'pmm', seed = 500)
 temp <- mice::complete(tempData)
 headers$marginal_utility[-1] <- temp$marginal_utility
 
+rm(temp, tempData)
+
 # Calculate the moving averages, these need to be odd numbers so that the
 # averages are symmetric. For the daily average use 143. For the bi-weekly,
 # use the off-by-one bug value of 2015. And for the monthly, use 1/12th of an
@@ -200,21 +204,78 @@ headers <- headers %>%
                                           k = 4383,
                                           fill = NA))
 
+
+
 plot_util <- ggplot(headers, aes(x = year, y = marginal_utility)) +
-  geom_density_2d(na.rm = TRUE, size = 0.25) +
+  geom_density_2d(na.rm = TRUE, size = 0.25, color = "blue") +
   geom_line(mapping = aes(x = year, y = util_14da),
-             na.rm = TRUE,
-             color = "black",
-             size = 1) +
+            na.rm = TRUE,
+            size = 1,
+            color = "black") +
+  geom_vline(mapping = aes(xintercept = headers[210001,c("year")]),
+             color = "red") +
+  geom_vline(mapping = aes(xintercept = headers[420001,c("year")]),
+             color = "red") +
+  geom_vline(mapping = aes(xintercept = headers[630001,c("year")]),
+             color = "red") +
   scale_y_continuous(trans = 'log10',
                      breaks = scales::trans_breaks('log10', function(x) 10^x),
                      labels =
                        scales::trans_format('log10',
                                             scales::math_format(10^.x))) +
+  scale_color_discrete(name = "Legend",
+                       # breaks = c("marginal_utility", "util_14da", "trt2"),
+                       labels = c("Histogram",
+                                "14-day MA",
+                                "Halvenings")) +
   labs(title = "Marginal Utility of Bitcoin [MJ/BTC]",
-       subtitle = "All Time: with 14-day moving average",
-       # color = "Metric",
+       subtitle = "All Time: histogram with 14-day moving average",
+       color = "Legend",
        x = "Year",
        y = "Marginal Utility [MJ/BTC]")
 
+
+# Download Price History
+CBBTCUSD <- readxl::read_excel("data/CBBTCUSD.xls", skip = 10)
+CBBTCUSD$observation_date <- as.Date(CBBTCUSD$observation_date,
+                                     format = "%Y-%m-%d")
+CBBTCUSD$year <- decimal_date(CBBTCUSD$observation_date)
+CBBTCUSD <- subset(CBBTCUSD, select = -observation_date)
+CBBTCUSD <- CBBTCUSD[!(CBBTCUSD$CBBTCUSD %in% 0.00),]
+CBBTCUSD$marginal_utility <- NA
+
+closest <- function(vect,val){
+  vect[which(abs(vect - val) == min(abs(vect - val)))]
+}
+for (i in 1:length(CBBTCUSD$year)) {
+   CBBTCUSD$marginal_utility[i] <-
+     headers$marginal_utility[headers$year %in%
+                                closest(headers$year, CBBTCUSD$year[i])]
+}
+
+rm(i)
+
+
+# Fit the data to a power law relationship and plot
+fit <- lm(log(CBBTCUSD$marginal_utility) ~ log(CBBTCUSD$CBBTCUSD))
+fitted_data <- subset(CBBTCUSD, select = -year)
+fitted_data$marginal_utility <- exp(fit$coefficients[1]) *
+  fitted_data$CBBTCUSD ^ fit$coefficients[2]
+
+
+
+plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = CBBTCUSD, y = marginal_utility)) +
+  geom_jitter() +
+  geom_line(data = fitted_data,
+            na.rm = TRUE,
+            size = 1,
+            color = "red") +
+  scale_x_continuous(trans = 'log10') +
+  scale_y_continuous(trans = 'log10')
+
+# Outputs
 plot_util
+exp(-fit$coefficients[1]/fit$coefficients[2]) * tail(headers$util_14da[
+  !is.na(headers$util_14da)], n = 1)^(1/fit$coefficients[2])
+plot(density(resid(fit)))
+plot_BTCUSD
