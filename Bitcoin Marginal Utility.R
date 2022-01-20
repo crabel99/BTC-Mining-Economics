@@ -1,8 +1,8 @@
 # This file imports the necessary block header data into R for calculating
 # bitcoin's marginal utility.
 #
-# The Bitcoin blockchain is parsed using a fork of Bitcoin-Abe:
-# https://github.com/crabel99/bitcoin-abe/tree/python2-to-python3
+# The Bitcoin blockchain is parsed using Blockchain Postgres Import:
+# https://github.com/blkchain/blkchain
 
 ################################################################################
 # Libraries
@@ -13,6 +13,10 @@ library(invgamma)
 library(fitdistrplus)
 library(foreach)
 library(doParallel)
+library(zoo)
+library(hrbrthemes)
+library(ggplot2)
+library(mice)
 
 
 ################################################################################
@@ -43,7 +47,7 @@ hash_rate <- function(nbits, delta_t) {
 }
 
 sats_to_block <- function(height) {
-  #Bitcoin Miner Subsidy as a function of block height
+  #Total bitcoin miner subsidy issued as a function of block height
   i <- floor(height / 210000)
   if (i <= 32) {
     total <- 0
@@ -70,67 +74,42 @@ gen_logistic = function(params, x) {
 # The connection is established using a DSN to the appropriate database. See:
 # https://db.rstudio.com/best-practices/drivers/
 
-con <- DBI::dbConnect(odbc::odbc(), "Abe", timeout = 10)
+conn <- DBI::dbConnect(odbc::odbc(), "Abe", timeout = 10)
 
-latest_block <- DBI::dbGetQuery(con,
-  "SELECT block_height
-  FROM block
-  WHERE block_height IS NOT NULL ORDER BY block_height DESC LIMIT 1") %>%
+latest_block <- DBI::dbGetQuery(conn,
+  "SELECT height
+  FROM blocks
+  WHERE height IS NOT NULL AND
+  orphan = false
+  ORDER BY height DESC LIMIT 1") %>%
   as.integer()
 
-headers <- DBI::dbGetQuery(con,
+headers <- DBI::dbGetQuery(conn,
   paste("
         SELECT
-          block_id,
-          block_height,
-          block_ntime,
-          block_nbits,
-          prev_block_id
-        FROM block",
-        # "WHERE block_height < 200000 AND block_height > 195000 ",
-        "WHERE block_height < ", latest_block,
-        "ORDER BY block_height ASC"))
+        	b.height AS height,
+        	b.time AS time,
+        	b.bits AS bits,
+        	SUM(o.value) AS coinbase
+        FROM blocks AS b
+        LEFT JOIN block_txs AS bt ON b.id = bt.block_id
+        LEFT JOIN txouts AS o ON bt.tx_id = o.tx_id",
+        # "WHERE block_height < 200000 AND block_height > 195000 AND
+        # "WHERE height < ", 30000, " AND
+        "WHERE height < ", latest_block, " AND
+          bt.n = 0 AND b.orphan = false
+        GROUP BY bt.tx_id, b.height, b.time, b.bits
+        ORDER BY b.height ASC"))
 
-txouts <- DBI::dbGetQuery(con,
-  paste("
-        SELECT
-          block_id,
-          in_longest,
-          txout_pos,
-          txout_value
-        FROM txout_detail",
-        # "WHERE block_height < 200000 AND block_height > 195000 ",
-        "WHERE block_height < ", latest_block,
-        "ORDER BY block_height, txout_pos ASC"))
 
 
 # Use the smallest data class possible to save on storage space
-headers$block_id <- as.integer(headers$block_id)
-headers$block_height <- as.integer(headers$block_height)
-headers$prev_block_id <- as.integer(headers$prev_block_id)
-headers$block_nbits <- as.integer(headers$block_nbits)
+headers$height <- as.integer(headers$height)
+headers$time <- as.integer(headers$time)
+headers$bits <- as.integer(headers$bits)
 
-txouts$block_id <- as.integer(txouts$block_id)
-txouts$in_longest <- as.logical(txouts$in_longest)
-txouts$txout_pos <- as.integer(txouts$txout_pos)
-
-# Sort based upon longest chain and remove orphan/forks
-n_blocks <- length(headers$block_id)
-longest_id <- integer(n_blocks)
-longest_id[1]  <- headers$block_id[
-  !(headers$block_id %in% headers$prev_block_id)]
-longest_id[1] <- which(headers$block_id == longest_id[1])
-
-for (i in 2:n_blocks) {
-  longest_id[i] <- which(
-    headers$block_id == headers$prev_block_id[longest_id[i - 1]])
-}
-
-longest_id <- rev(longest_id)
-headers <- headers[longest_id, ]
-
-# rm(con, i, longest_id)
-
+DBI::dbDisconnect(conn = conn)
+rm(conn)
 
 ################################################################################
 # Mining Efficiency Model
@@ -153,33 +132,30 @@ lines(hash[,1], gen_logistic(c(0.01,coef(params_hash)), hash[, 1]), col = 1)
 # Finalize Model Data and Estimates
 ################################################################################
 headers[ , "total_sats"] <- numeric()
-headers[ , "coinbase"] <- numeric()
 headers[ , "hash_rate"] <- numeric()
 headers[ , "delta_t"] <- numeric()
 headers[ , "marginal_utility"] <- numeric()
-headers$year <- headers$block_ntime %>% as_datetime() %>% decimal_date()
+headers$year <- headers$time %>% as_datetime() %>% decimal_date()
 
 # Intitialize parallelization
-ncores = detectCores() - 1
+ncores = detectCores() - 3
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 
 
 headers <- foreach(
   block = iter(headers, by = "row"),
-  .export = c("headers", "txouts", "params_hash"),
+  .export = c("headers", "params_hash"),
   .combine = rbind) %dopar% {
-    i <- which(headers$block_id == block$block_id)
-    block$total_sats <- sats_to_block(block$block_height)
-    block$coinbase <- sum(subset(
-      txouts,txouts$block_id == block$block_id & txouts$txout_pos == 0)[,4])
+    i <- which(headers$height == block$height)
+    block$total_sats <- sats_to_block(block$height)
 
     if (i > 1) {
       # Median Time Past Rule time difference
-      block$delta_t <- (block$block_ntime - median(
-        headers$block_ntime[max((i - 11), 1):(i - 1)])) / min(6, i / 2)
+      block$delta_t <- (block$time - median(
+        headers$time[max((i - 11), 1):(i - 1)])) / min(6, i / 2)
 
-      block$hash_rate <- hash_rate(block$block_nbits, block$delta_t)
+      block$hash_rate <- hash_rate(block$bits, block$delta_t)
       block$marginal_utility <- block$hash_rate * 600 * 1e8 /
         gen_logistic(c(0.01,coef(params_hash)), block$year) / block$coinbase
     }
@@ -189,13 +165,56 @@ headers <- foreach(
 
 stopCluster(cl)
 
+rm(cl, ncores)
+
 # plot(headers$year, headers$hash_rate, log = "y",
 #      xlab = "year", ylab = "MH/J")
 #
 # plot(headers$year, headers$marginal_utility, log = "y",
 #      xlab = "year", ylab = "MJ/BTC")
 #
+# fit <- fitdist(headers$delta_t[-1:-11], distr = "gamma", method = "mle")
 # fit <- fitdist(headers$marginal_utility[-1:-11], distr = "invgamma", method = "mle")
 # summary(fit)
 # plot(fit)
 
+# Resolve any missing data
+headers$marginal_utility[is.infinite(headers$marginal_utility)] <- NA
+headers$height[is.na(headers$marginal_utility)][-1]
+temp <- headers[,c(1,8)]
+temp <- temp[-1,] # remove the first NA
+tempData <- mice(temp, m = 5, maxit = 50, meth = 'pmm', seed = 500)
+temp <- mice::complete(tempData)
+headers$marginal_utility[-1] <- temp$marginal_utility
+
+# Calculate the moving averages, these need to be odd numbers so that the
+# averages are symmetric. For the daily average use 143. For the bi-weekly,
+# use the off-by-one bug value of 2015. And for the monthly, use 1/12th of an
+# 8766-hour year.
+headers <- headers %>%
+  dplyr::mutate(util_01da = zoo::rollmean(marginal_utility, k = 143, fill = NA),
+                util_14da = zoo::rollmean(marginal_utility,
+                                          k = 2015,
+                                          fill = NA),
+                util_30da = zoo::rollmean(marginal_utility,
+                                          k = 4383,
+                                          fill = NA))
+
+plot_util <- ggplot(headers, aes(x = year, y = marginal_utility)) +
+  geom_density_2d(na.rm = TRUE, size = 0.25) +
+  geom_line(mapping = aes(x = year, y = util_14da),
+             na.rm = TRUE,
+             color = "black",
+             size = 1) +
+  scale_y_continuous(trans = 'log10',
+                     breaks = scales::trans_breaks('log10', function(x) 10^x),
+                     labels =
+                       scales::trans_format('log10',
+                                            scales::math_format(10^.x))) +
+  labs(title = "Marginal Utility of Bitcoin [MJ/BTC]",
+       subtitle = "All Time: with 14-day moving average",
+       # color = "Metric",
+       x = "Year",
+       y = "Marginal Utility [MJ/BTC]")
+
+plot_util
