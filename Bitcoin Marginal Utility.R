@@ -19,6 +19,8 @@ library(zoo)
 library(hrbrthemes)
 library(ggplot2)
 library(mice)
+library(caTools)
+library(Metrics)
 
 
 ################################################################################
@@ -249,33 +251,73 @@ closest <- function(vect,val){
 }
 for (i in 1:length(CBBTCUSD$year)) {
    CBBTCUSD$marginal_utility[i] <-
-     headers$marginal_utility[headers$year %in%
+     headers$util_01da[headers$year %in%
                                 closest(headers$year, CBBTCUSD$year[i])]
 }
-
+CBBTCUSD <- CBBTCUSD[!is.na(CBBTCUSD$marginal_utility), ]
 rm(i)
 
-
 # Fit the data to a power law relationship and plot
-fit <- lm(log(CBBTCUSD$marginal_utility) ~ log(CBBTCUSD$CBBTCUSD))
-fitted_data <- subset(CBBTCUSD, select = -year)
-fitted_data$marginal_utility <- exp(fit$coefficients[1]) *
-  fitted_data$CBBTCUSD ^ fit$coefficients[2]
+data_input <- subset(CBBTCUSD, select = -year)
+split <- sample.split(data_input$marginal_utility, SplitRatio = 0.8)
+
+# Linear regression of the log of the data
+train <- subset(data_input, split == "TRUE") %>% log()
+test <- subset(data_input, split == "FALSE")  %>% log()
+fit <- lm(CBBTCUSD ~ marginal_utility, train)
+pred <- predict(fit, test, se.fit = TRUE)
+res <- resid(fit)
+fit_norm <- fitdist(res, distr = "norm", method = "mle")
+
+# produce a residual vs fitted plot for visualizing heteroscedasticity
+#produce residual vs. fitted plot
+plot(fitted(fit), res)
+#add a horizontal line at 0
+abline(0,0)
+
+plot(fit_norm)
 
 
 
-plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = CBBTCUSD, y = marginal_utility)) +
+
+Y_test <- test$CBBTCUSD
+sum_squared_error <- sse(Y_test, pred$fit)
+mean_squared_error <- mse(Y_test, pred$fit)
+root_mean_squared_error <- rmse(Y_test, pred$fit)
+relative_squared_error <- rse(Y_test, pred$fit)
+mean_abs_error <- mae(Y_test, pred$fit)
+mean_abs_deviation <- mean_abs_error/length(Y_test)
+relative_abs_error <- rae(Y_test, pred$fit)
+
+error <- Y_test - pred$fit
+R2 <- 1 - sum(error^2)/sum((Y_test - mean(Y_test))^2)
+Adj_R2 <- 1 - (mean_squared_error/var(Y_test))
+
+fitted_data <- data_input
+fitted_data$CBBTCUSD <- exp(fit$coefficients[1]) *
+  fitted_data$marginal_utility ^ fit$coefficients[2]
+
+est_price <- exp(fit$coefficients[1]) *
+  tail(headers$util_14da[!is.na(headers$util_14da)],
+       n = 1) ^ fit$coefficients[2]
+act_price <- 38000
+dif_price <- log(act_price) - log(est_price)
+dif_sigma <- dif_price/fit_norm$estimate[2]
+
+plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = marginal_utility, y = CBBTCUSD)) +
   geom_jitter() +
   geom_line(data = fitted_data,
             na.rm = TRUE,
             size = 1,
             color = "red") +
   scale_x_continuous(trans = 'log10') +
-  scale_y_continuous(trans = 'log10')
+  scale_y_continuous(trans = 'log10') +
+  labs(title = "Bitcoin Price to Marginal Utility",
+       subtitle = "Dec 2014 - Present",
+       color = "Legend",
+       x = "Marginal Utility [MJ/BTC]",
+       y = "Price [USD/BTC]")
 
 # Outputs
 plot_util
-exp(-fit$coefficients[1]/fit$coefficients[2]) * tail(headers$util_14da[
-  !is.na(headers$util_14da)], n = 1)^(1/fit$coefficients[2])
-plot(density(resid(fit)))
 plot_BTCUSD
