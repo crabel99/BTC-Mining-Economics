@@ -16,12 +16,15 @@
 # II. Model Price Movements as a Function of Marginal Utility
 #     A. Download price data
 #     B. Estimate model parameters
+#     c. Evaluate the predictive capacity of the model
 #
 # The price movements use the 1-day moving average of the marginal utility as
 # the input parameter. The price data should be the daily moving average.
 # The price used from FRED are not daily averages. Once a daily average price
 # history is found, adjust the search time by 12-hr so that the moving average
 # corresponds to the daily average. Make sure that the price history is in UTC.
+#
+# The included plotted data is up to block height 719186.
 
 ################################################################################
 # Libraries
@@ -38,7 +41,7 @@ library(ggplot2)
 library(mice)
 library(caTools)
 library(Metrics)
-
+library(latex2exp)
 
 ################################################################################
 # Utility Functions
@@ -87,6 +90,10 @@ gen_logistic = function(params, x) {
   # Generalized Logistic Function
   params[1] - (params[1] - params[2]) /
     (1 + exp(-params[3] * (x - params[4])))
+}
+
+closest <- function(vect,val) {
+  vect[which(abs(vect - val) == min(abs(vect - val)))]
 }
 ################################################################################
 # Gather the Data
@@ -158,11 +165,10 @@ headers[ , "delta_t"] <- numeric()
 headers[ , "marginal_utility"] <- numeric()
 headers$year <- headers$time %>% as_datetime() %>% decimal_date()
 
-# Intitialize parallelization
+# Initialize parallelization
 ncores = detectCores() - 3
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-
 
 headers <- foreach(
   block = iter(headers, by = "row"),
@@ -254,18 +260,22 @@ plot_util <- ggplot(headers, aes(x = year, y = marginal_utility)) +
        y = "Marginal Utility [MJ/BTC]")
 
 
-# Download Price History
+################################################################################
+# Model Price Movements as a Function of Marginal Utility
+################################################################################
+
+#######################################
+# Download the price data
+#######################################
 CBBTCUSD <- readxl::read_excel("data/CBBTCUSD.xls", skip = 10)
 CBBTCUSD$observation_date <- as.Date(CBBTCUSD$observation_date,
                                      format = "%Y-%m-%d")
-CBBTCUSD$year <- decimal_date(CBBTCUSD$observation_date)
+CBBTCUSD$year <- decimal_date(CBBTCUSD$observation_date) + 8.5/8766
 CBBTCUSD <- subset(CBBTCUSD, select = -observation_date)
 CBBTCUSD <- CBBTCUSD[!(CBBTCUSD$CBBTCUSD %in% 0.00),]
 CBBTCUSD$marginal_utility <- NA
 
-closest <- function(vect,val){
-  vect[which(abs(vect - val) == min(abs(vect - val)))]
-}
+
 for (i in 1:length(CBBTCUSD$year)) {
    CBBTCUSD$marginal_utility[i] <-
      headers$util_01da[headers$year %in%
@@ -274,6 +284,9 @@ for (i in 1:length(CBBTCUSD$year)) {
 CBBTCUSD <- CBBTCUSD[!is.na(CBBTCUSD$marginal_utility), ]
 rm(i)
 
+#######################################
+# Estimate Model Parameters
+#######################################
 # Fit the data to a power law relationship and plot
 data_input <- subset(CBBTCUSD, select = -year)
 split <- sample.split(data_input$marginal_utility, SplitRatio = 0.8)
@@ -294,9 +307,52 @@ abline(0,0)
 
 plot(fit_norm)
 
+# Model the bitcoin price using the power law model
+btc_price <- function(marg_utl, const, exponent) {
+  return(exp(const) * marg_utl ^ exponent)
+}
 
+#Evaluate the size of bitcoin price movements from the power law model
+btc_num_sigma <- function(mu_price, act_price,sigma) {
+  dif_price <- log(act_price) - log(mu_price)
+  return(dif_price/sigma)
+}
 
+# Example of model using real world data
+est_price <- btc_price(tail(headers$util_01da[!is.na(headers$util_01da)],
+                            n = 1),
+                       fit$coefficients[1],
+                       fit$coefficients[2])
+dif_sigma <- btc_num_sigma(est_price, 38000, fit_norm$estimate[2])
 
+# Plot the btc price model vs the data
+fitted_data <- data_input
+fitted_data$CBBTCUSD <- exp(fit$coefficients[1]) *
+  fitted_data$marginal_utility ^ fit$coefficients[2]
+
+plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = marginal_utility, y = CBBTCUSD)) +
+  geom_jitter() +
+  geom_line(data = fitted_data,
+            na.rm = TRUE,
+            size = 1,
+            color = "red") +
+  scale_x_continuous(trans = 'log10',
+                     labels =
+                       scales::trans_format('log10',
+                                            scales::math_format(10^.x))) +
+  scale_y_continuous(trans = 'log10',
+                     labels =
+                       scales::trans_format('log10',
+                                            scales::math_format(10^.x))) +
+  labs(title = "Bitcoin Price to Marginal Utility",
+       subtitle = TeX("Dec 2014 - Present: Fitted Model: $price =1.529\\cdot 10^{-5}\\lambda^{1.670}$"),
+       color = "Legend",
+       x = TeX("$\\lambda \\left[MJ/BTC\\right]$"),
+       y = "Price [USD/BTC]")
+
+#######################################
+# Evaluate the Predictive Capacity of the Model
+#######################################
 Y_test <- test$CBBTCUSD
 sum_squared_error <- sse(Y_test, pred$fit)
 mean_squared_error <- mse(Y_test, pred$fit)
@@ -310,42 +366,23 @@ error <- Y_test - pred$fit
 R2 <- 1 - sum(error^2)/sum((Y_test - mean(Y_test))^2)
 Adj_R2 <- 1 - (mean_squared_error/var(Y_test))
 
-fitted_data <- data_input
-fitted_data$CBBTCUSD <- exp(fit$coefficients[1]) *
-  fitted_data$marginal_utility ^ fit$coefficients[2]
 
-# Model the bitcoin price using the power law model
-btc_price <- function(marg_utl, const, exponent) {
-  return(exp(const) * marg_utl ^ exponent)
-}
+#######################################
+# Project Bitcoin Marginal Utility
+#######################################
+proj_data <- headers[headers$year > 2014, ]
+proj_data <- subset(proj_data, select = c(height, year, marginal_utility))
+proj_data$ln_util <- log(proj_data$marginal_utility)
+proj_split <- sample.split(proj_data$marginal_utility, SplitRatio = 0.8)
 
-#Evaluate the size of bitcoin price movements from the power law model
-btc_num_sigma <- function(mu_price, act_price,sigma) {
-  dif_price <- log(act_price) - log(mu_price)
-  return(dif_price/sigma)
-}
-
-est_price <- btc_price(tail(headers$util_01da[!is.na(headers$util_01da)],
-                            n = 1),
-                       fit$coefficients[1],
-                       fit$coefficients[2])
-dif_sigma <- btc_num_sigma(est_price, 38000, fit_norm$estimate[2])
-
-
-# Plot the btc price model vs the data
-plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = marginal_utility, y = CBBTCUSD)) +
-  geom_jitter() +
-  geom_line(data = fitted_data,
-            na.rm = TRUE,
-            size = 1,
-            color = "red") +
-  scale_x_continuous(trans = 'log10') +
-  scale_y_continuous(trans = 'log10') +
-  labs(title = "Bitcoin Price to Marginal Utility",
-       subtitle = "Dec 2014 - Present",
-       color = "Legend",
-       x = "Marginal Utility [MJ/BTC]",
-       y = "Price [USD/BTC]")
+# Linear regression of the log of the data
+proj_train <- subset(proj_data, proj_split == "TRUE")
+proj_test <- subset(proj_data, proj_split == "FALSE")
+proj_fit <- lm(ln_util ~ year, proj_train)
+proj_fit_norm <- fitdist(resid(proj_fit), distr = "norm", method = "mle")
+proj_pred <- predict(proj_fit, proj_test, se.fit = TRUE)
+plot(proj_fit_norm)
+plot(density(proj_train$ln_util - proj_pred$fit))
 
 # Plot Outputs
 plot_util
