@@ -5,6 +5,23 @@
 # https://github.com/blkchain/blkchain
 #
 # Bitcoin Price History: https://fred.stlouisfed.org/series/CBBTCUSD#0
+#
+#
+# The general approach to the model is the following:
+# I. Estimate bitcoin's marginal utility
+#     A. Download the block data
+#     B. Model the miner efficiency
+#     C. Compute the marginal utility
+#     D. Compute the 1-day, 14-day, and 30-day moving averages
+# II. Model Price Movements as a Function of Marginal Utility
+#     A. Download price data
+#     B. Estimate model parameters
+#
+# The price movements use the 1-day moving average of the marginal utility as
+# the input parameter. The price data should be the daily moving average.
+# The price used from FRED are not daily averages. Once a daily average price
+# history is found, adjust the search time by 12-hr so that the moving average
+# corresponds to the daily average. Make sure that the price history is in UTC.
 
 ################################################################################
 # Libraries
@@ -297,13 +314,25 @@ fitted_data <- data_input
 fitted_data$CBBTCUSD <- exp(fit$coefficients[1]) *
   fitted_data$marginal_utility ^ fit$coefficients[2]
 
-est_price <- exp(fit$coefficients[1]) *
-  tail(headers$util_14da[!is.na(headers$util_14da)],
-       n = 1) ^ fit$coefficients[2]
-act_price <- 38000
-dif_price <- log(act_price) - log(est_price)
-dif_sigma <- dif_price/fit_norm$estimate[2]
+# Model the bitcoin price using the power law model
+btc_price <- function(marg_utl, const, exponent) {
+  return(exp(const) * marg_utl ^ exponent)
+}
 
+#Evaluate the size of bitcoin price movements from the power law model
+btc_num_sigma <- function(mu_price, act_price,sigma) {
+  dif_price <- log(act_price) - log(mu_price)
+  return(dif_price/sigma)
+}
+
+est_price <- btc_price(tail(headers$util_01da[!is.na(headers$util_01da)],
+                            n = 1),
+                       fit$coefficients[1],
+                       fit$coefficients[2])
+dif_sigma <- btc_num_sigma(est_price, 38000, fit_norm$estimate[2])
+
+
+# Plot the btc price model vs the data
 plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = marginal_utility, y = CBBTCUSD)) +
   geom_jitter() +
   geom_line(data = fitted_data,
@@ -318,6 +347,7 @@ plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = marginal_utility, y = CBBTCUSD)) +
        x = "Marginal Utility [MJ/BTC]",
        y = "Price [USD/BTC]")
 
-# Outputs
+# Plot Outputs
 plot_util
+
 plot_BTCUSD
