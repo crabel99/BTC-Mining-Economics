@@ -11,7 +11,7 @@ To be able to use this code you will need to install:
 - [RStudio](https://www.rstudio.com/products/rstudio/download/) or [R](https://www.r-project.org/)
 - A blockchain parser e.g. [Blockchain Postgres Import](https://github.com/blkchain/blkchain)
 
-If you are using RStudio it should automatically download the packages as they are specified in the lock file.
+If you are using RStudio , you will need to enter `renv::restore()` in the console when you first open the project.
 Once you have the environment set up and the database populated, you will need to open `Bitcoin Marginal Utility.R` and execute it from source.
 This will run the entire file and provide you wil the graphical outputs seen in the `*.pdf`'s in this repository.
 
