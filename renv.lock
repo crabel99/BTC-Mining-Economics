@@ -515,6 +515,17 @@
       "Hash": "3d5108641f47470611a32d0bdf357a72",
       "Requirements": []
     },
+    "latex2exp": {
+      "Package": "latex2exp",
+      "Version": "0.9.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "8edcb6bc2580de8eeb3e3720bcd307c7",
+      "Requirements": [
+        "magrittr",
+        "stringr"
+      ]
+    },
     "lattice": {
       "Package": "lattice",
       "Version": "0.20-45",
