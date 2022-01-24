@@ -2,6 +2,8 @@
 # Libraries
 ################################################################################
 library(lubridate)
+library(latex2exp)
+library(ggplot2)
 
 
 ################################################################################
@@ -98,11 +100,34 @@ legend("topleft",
        col = c(1,2,3,4,6), pch = c(1,2,3,4,5), lty = c(1,1,1,1,1), ncol = 1)
 
 # Bitcoin Mining Efficiency
-plot(hash[,1], hash[,2], log = "y", xlab = "year", ylab = "MH/J")
-lines(hash[,1], gen_logistic(c(0.01,coef(params_hash)), hash[, 1]), col = 1)
+hash$fit <- gen_logistic(c(0.01,coef(params_hash)), hash[, 1])
+plot_miner_eff <- ggplot(hash, aes(x = t, y = y)) +
+  geom_jitter(color = "#7895aa") +
+  geom_line(aes(y = fit),
+            na.rm = TRUE,
+            size = 1,
+            color = "#004c6d") +
+  scale_y_continuous(trans = 'log10',
+                     labels =
+                       scales::trans_format('log10',
+                                            scales::math_format(10^.x))) +
+  labs(title = "Bitcoin Miner Performance",
+       subtitle = TeX("Fitted Model: $\\eta(t) = 0.01\\left[MH/J\\right] + \\frac{42730\\left[MH/J\\right]}{1 + e^{-1.258\\left[1/a\\right](t - 2019.2\\left[a\\right])}}$"),
+       color = "Legend",
+       x = "year",
+       y = "Miner Performance [MH/J]")
+plot_miner_eff
 
 # General Processor Efficiency
 t <- seq(2001, length.out = 30)
-plot(t,  sigmoid(coef(params_spec), t) * (sigmoid(coef(params_core), t) + 1) /
-       sigmoid(coef(params_watt), t),
+processor_eff <- data.frame(t)
+for (i in t) {
+  processor_eff$eff[i == t] <- sigmoid(coef(params_spec), i) * (sigmoid(coef(params_core), i) + 1) /
+    sigmoid(coef(params_watt), i)
+}
+plot_processor_eff <- ggplot(processor_eff, aes(x = t, y = eff)) +
+  geom_line(size = 1, color = "#004c6d")
+plot(t,  ,
      log = "y", ylab = "SPECINT/J", xlab = "year")
+plot_processor_eff
+
