@@ -194,16 +194,13 @@ stopCluster(cl)
 
 rm(cl, ncores)
 
-# plot(headers$year, headers$hash_rate, log = "y",
-#      xlab = "year", ylab = "MH/J")
-#
-# plot(headers$year, headers$marginal_utility, log = "y",
-#      xlab = "year", ylab = "MJ/BTC")
-#
-# fit <- fitdist(headers$delta_t[-1:-11], distr = "gamma", method = "mle")
+
+time_data <- headers[
+  headers[
+    closest(headers$time,1666298078) == headers$time, 3] == headers$bits, 7]
+time_fit <- fitdist(time_data, distr = "gamma", method = "mle")
 # fit <- fitdist(headers$marginal_utility[-1:-11], distr = "invgamma", method = "mle")
-# summary(fit)
-# plot(fit)
+plot(time_fit)
 
 # Resolve any missing data
 headers$marginal_utility[is.infinite(headers$marginal_utility)] <- NA
@@ -229,20 +226,22 @@ headers <- headers %>%
                                           k = 4383,
                                           fill = NA))
 
-
-
 plot_util <- ggplot(headers, aes(x = year, y = marginal_utility)) +
-  geom_density_2d(na.rm = TRUE, size = 0.25, color = "blue") +
+  # stat_density_2d(aes(fill = factor(stat(level))), geom = "polygon") +
+  geom_density_2d(na.rm = TRUE,
+                  size = 0.25,
+                  color = "#7895aa",
+                  show.legend = TRUE) +
   geom_line(mapping = aes(x = year, y = util_14da),
             na.rm = TRUE,
             size = 1,
-            color = "black") +
+            color = "#004c6d") +
   geom_vline(mapping = aes(xintercept = headers[210001,c("year")]),
-             color = "red") +
+             color = "#ff6361") +
   geom_vline(mapping = aes(xintercept = headers[420001,c("year")]),
-             color = "red") +
+             color = "#ff6361") +
   geom_vline(mapping = aes(xintercept = headers[630001,c("year")]),
-             color = "red") +
+             color = "#ff6361") +
   scale_y_continuous(trans = 'log10',
                      breaks = scales::trans_breaks('log10', function(x) 10^x),
                      labels =
@@ -251,14 +250,13 @@ plot_util <- ggplot(headers, aes(x = year, y = marginal_utility)) +
   scale_color_discrete(name = "Legend",
                        # breaks = c("marginal_utility", "util_14da", "trt2"),
                        labels = c("Histogram",
-                                "14-day MA",
-                                "Halvenings")) +
+                                  "14-day MA",
+                                  "Halvenings")) +
   labs(title = "Marginal Utility of Bitcoin [MJ/BTC]",
        subtitle = "All Time: histogram with 14-day moving average",
        color = "Legend",
        x = "Year",
        y = "Marginal Utility [MJ/BTC]")
-
 
 ################################################################################
 # Model Price Movements as a Function of Marginal Utility
@@ -270,7 +268,7 @@ plot_util <- ggplot(headers, aes(x = year, y = marginal_utility)) +
 CBBTCUSD <- readxl::read_excel("data/CBBTCUSD.xls", skip = 10)
 CBBTCUSD$observation_date <- as.Date(CBBTCUSD$observation_date,
                                      format = "%Y-%m-%d")
-CBBTCUSD$year <- decimal_date(CBBTCUSD$observation_date) + 8.5/8766
+CBBTCUSD$year <- decimal_date(CBBTCUSD$observation_date) + 20/8766
 CBBTCUSD <- subset(CBBTCUSD, select = -observation_date)
 CBBTCUSD <- CBBTCUSD[!(CBBTCUSD$CBBTCUSD %in% 0.00),]
 CBBTCUSD$marginal_utility <- NA
@@ -323,7 +321,7 @@ est_price <- btc_price(tail(headers$util_01da[!is.na(headers$util_01da)],
                             n = 1),
                        fit$coefficients[1],
                        fit$coefficients[2])
-dif_sigma <- btc_num_sigma(est_price, 38000, fit_norm$estimate[2])
+dif_sigma <- btc_num_sigma(est_price, 36000, fit_norm$estimate[2])
 
 # Plot the btc price model vs the data
 fitted_data <- data_input
@@ -331,11 +329,11 @@ fitted_data$CBBTCUSD <- exp(fit$coefficients[1]) *
   fitted_data$marginal_utility ^ fit$coefficients[2]
 
 plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = marginal_utility, y = CBBTCUSD)) +
-  geom_jitter() +
+  geom_jitter(color = "#7895aa") +
   geom_line(data = fitted_data,
             na.rm = TRUE,
             size = 1,
-            color = "red") +
+            color = "#004c6d") +
   scale_x_continuous(trans = 'log10',
                      labels =
                        scales::trans_format('log10',
@@ -345,7 +343,7 @@ plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = marginal_utility, y = CBBTCUSD)) +
                        scales::trans_format('log10',
                                             scales::math_format(10^.x))) +
   labs(title = "Bitcoin Price to Marginal Utility",
-       subtitle = TeX("Dec 2014 - Present: Fitted Model: $price =1.529\\cdot 10^{-5}\\lambda^{1.670}$"),
+       subtitle = TeX("(Dec 2014 - Present) Fitted Model: $price =1.564\\cdot 10^{-5}\\lambda^{1.667}$"),
        color = "Legend",
        x = TeX("$\\lambda \\left[MJ/BTC\\right]$"),
        y = "Price [USD/BTC]")
@@ -365,7 +363,8 @@ relative_abs_error <- rae(Y_test, pred$fit)
 error <- Y_test - pred$fit
 R2 <- 1 - sum(error^2)/sum((Y_test - mean(Y_test))^2)
 Adj_R2 <- 1 - (mean_squared_error/var(Y_test))
-
+fit_norm_test <- fitdist(error, distr = "norm", method = "mle")
+plot(fit_norm_test)
 
 #######################################
 # Project Bitcoin Marginal Utility
@@ -381,8 +380,25 @@ proj_test <- subset(proj_data, proj_split == "FALSE")
 proj_fit <- lm(ln_util ~ year, proj_train)
 proj_fit_norm <- fitdist(resid(proj_fit), distr = "norm", method = "mle")
 proj_pred <- predict(proj_fit, proj_test, se.fit = TRUE)
-plot(proj_fit_norm)
-plot(density(proj_train$ln_util - proj_pred$fit))
+# plot(proj_fit_norm)
+proj_data$pred_util <- exp(proj_fit$coefficients[2]*proj_data$year +
+                             proj_fit$coefficients[1])
+
+Y_proj_test <- proj_test$ln_util
+proj_mean_squared_error <- mse(Y_proj_test, proj_pred$fit)
+proj_error <- Y_proj_test - proj_pred$fit
+proj_R2 <- 1 - sum(proj_error^2)/sum((Y_proj_test - mean(Y_proj_test))^2)
+proj_Adj_R2 <- 1 - (proj_mean_squared_error/var(Y_proj_test))
+proj_fit_norm_test <- fitdist(proj_error, distr = "norm", method = "mle")
+plot(proj_fit_norm_test)
+
+# Add new data series to plot
+plot_util <- plot_util +
+  geom_line(mapping = aes(x = year, y = pred_util),
+            data = proj_data,
+            na.rm = TRUE,
+            size = 1.5,
+            color = "#bc5090")
 
 # Plot Outputs
 plot_util
