@@ -119,27 +119,17 @@ plot_miner_eff <- ggplot(hash, aes(x = t, y = y)) +
 plot_miner_eff
 
 # General Processor Efficiency
-<<<<<<< HEAD
 t <- seq(2001, length.out = 22)
-=======
-t <- seq(2001, length.out = 30)
->>>>>>> afbceebad4ddb4e9afd7685e34c7619fca06635e
 processor_eff <- data.frame(t)
 for (i in t) {
   processor_eff$eff[i == t] <- sigmoid(coef(params_spec), i) * (sigmoid(coef(params_core), i) + 1) /
     sigmoid(coef(params_watt), i)
 }
 plot_processor_eff <- ggplot(processor_eff, aes(x = t, y = eff)) +
-<<<<<<< HEAD
   geom_line(size = 1, color = "#004c6d") +
   labs(title = "Processor Efficiency Trends",
        subtitle = "2001 to 2022",
        x = "year",
        y = "Processor Performance [SPECINT/J]")
-=======
-  geom_line(size = 1, color = "#004c6d")
-plot(t,  ,
-     log = "y", ylab = "SPECINT/J", xlab = "year")
->>>>>>> afbceebad4ddb4e9afd7685e34c7619fca06635e
 plot_processor_eff
 

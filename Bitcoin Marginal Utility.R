@@ -4,7 +4,7 @@
 # The Bitcoin blockchain is parsed using Blockchain Postgres Import:
 # https://github.com/blkchain/blkchain
 #
-# Bitcoin Price History: https://fred.stlouisfed.org/series/CBBTCUSD#0
+# Bitcoin Price History: https://fred.stlouisfed.org/series/CBBTCUSD
 #
 #
 # The general approach to the model is the following:
