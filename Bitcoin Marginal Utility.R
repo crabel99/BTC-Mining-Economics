@@ -316,6 +316,10 @@ btc_num_sigma <- function(mu_price, act_price,sigma) {
   return(dif_price/sigma)
 }
 
+btc_marg_util <- function(year, params) {
+  exp(params[1] + params[2]*year)
+}
+
 # Example of model using real world data
 est_price <- btc_price(tail(headers$util_01da[!is.na(headers$util_01da)],
                             n = 1),
