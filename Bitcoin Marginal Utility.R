@@ -4,7 +4,13 @@
 # The Bitcoin blockchain is parsed using Blockchain Postgres Import:
 # https://github.com/blkchain/blkchain
 #
-# Bitcoin Price History: https://fred.stlouisfed.org/series/CBBTCUSD
+#
+# Thank you to @mutatrum for the BTCUSD API endpoint.
+# Bitcoin Price History: https://community-api.coinmetrics.io/
+# See:
+# https://docs.coinmetrics.io/exchanges/all-exchanges
+# https://docs.coinmetrics.io/methodologies/reference-rates/hourly-reference-rates-methodology
+# https://docs.coinmetrics.io/api#timestamps
 #
 #
 # The general approach to the model is the following:
@@ -99,6 +105,22 @@ closest <- function(vect,val) {
 # Gather the Data
 ################################################################################
 
+# External price history time series
+api_url <- "https://community-api.coinmetrics.io/"
+api_endpint <- "v4/timeseries/asset-metrics"
+api_query <- "?page_size=10000&metrics=PriceUSD&assets=btc"
+api_request <- paste(api_url, api_endpint, api_query, sep = "")
+api_response <- httr::GET(url = api_request)
+httr::http_status(api_response)
+api_content <- httr::content(api_response)
+api_data <- bind_rows(api_content)
+api_data$year <- api_data$time %>% ymd_hms() %>% decimal_date() + 12/8766
+api_data$PriceUSD <- api_data$PriceUSD %>% as.numeric()
+api_data <- api_data %>% subset(select = -asset) %>% subset(select = -time)
+
+rm(api_url, api_endpint, api_query, api_request, api_response, api_content)
+
+# Local parsed blockchain
 # The connection is established using a DSN to the appropriate database. See:
 # https://db.rstudio.com/best-practices/drivers/
 
@@ -128,8 +150,6 @@ headers <- DBI::dbGetQuery(conn,
           bt.n = 0 AND b.orphan = false
         GROUP BY bt.tx_id, b.height, b.time, b.bits
         ORDER BY b.height ASC"))
-
-
 
 # Use the smallest data class possible to save on storage space
 headers$height <- as.integer(headers$height)
@@ -262,37 +282,27 @@ plot_util <- ggplot(headers, aes(x = year, y = marginal_utility)) +
 # Model Price Movements as a Function of Marginal Utility
 ################################################################################
 
-#######################################
-# Download the price data
-#######################################
-CBBTCUSD <- readxl::read_excel("data/CBBTCUSD.xls", skip = 10)
-CBBTCUSD$observation_date <- as.Date(CBBTCUSD$observation_date,
-                                     format = "%Y-%m-%d")
-CBBTCUSD$year <- decimal_date(CBBTCUSD$observation_date) + 20/8766
-CBBTCUSD <- subset(CBBTCUSD, select = -observation_date)
-CBBTCUSD <- CBBTCUSD[!(CBBTCUSD$CBBTCUSD %in% 0.00),]
-CBBTCUSD$marginal_utility <- NA
+api_data$marginal_utility <- NA
 
-
-for (i in 1:length(CBBTCUSD$year)) {
-   CBBTCUSD$marginal_utility[i] <-
+for (i in 1:length(api_data$year)) {
+   api_data$marginal_utility[i] <-
      headers$util_01da[headers$year %in%
-                                closest(headers$year, CBBTCUSD$year[i])]
+                                closest(headers$year, api_data$year[i])]
 }
-CBBTCUSD <- CBBTCUSD[!is.na(CBBTCUSD$marginal_utility), ]
+api_data <- api_data[!is.na(api_data$marginal_utility), ]
 rm(i)
 
 #######################################
 # Estimate Model Parameters
 #######################################
 # Fit the data to a power law relationship and plot
-data_input <- subset(CBBTCUSD, select = -year)
+data_input <- subset(api_data, select = -year)
 split <- sample.split(data_input$marginal_utility, SplitRatio = 0.8)
 
 # Linear regression of the log of the data
 train <- subset(data_input, split == "TRUE") %>% log()
 test <- subset(data_input, split == "FALSE")  %>% log()
-fit <- lm(CBBTCUSD ~ marginal_utility, train)
+fit <- lm(PriceUSD ~ marginal_utility, train)
 pred <- predict(fit, test, se.fit = TRUE)
 res <- resid(fit)
 fit_norm <- fitdist(res, distr = "norm", method = "mle")
@@ -329,10 +339,10 @@ dif_sigma <- btc_num_sigma(est_price, 36000, fit_norm$estimate[2])
 
 # Plot the btc price model vs the data
 fitted_data <- data_input
-fitted_data$CBBTCUSD <- exp(fit$coefficients[1]) *
+fitted_data$PriceUSD <- exp(fit$coefficients[1]) *
   fitted_data$marginal_utility ^ fit$coefficients[2]
 
-plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = marginal_utility, y = CBBTCUSD)) +
+plot_BTCUSD <- ggplot(api_data, aes(x = marginal_utility, y = PriceUSD)) +
   geom_jitter(color = "#7895aa") +
   geom_line(data = fitted_data,
             na.rm = TRUE,
@@ -355,7 +365,7 @@ plot_BTCUSD <- ggplot(CBBTCUSD, aes(x = marginal_utility, y = CBBTCUSD)) +
 #######################################
 # Evaluate the Predictive Capacity of the Model
 #######################################
-Y_test <- test$CBBTCUSD
+Y_test <- test$PriceUSD
 sum_squared_error <- sse(Y_test, pred$fit)
 mean_squared_error <- mse(Y_test, pred$fit)
 root_mean_squared_error <- rmse(Y_test, pred$fit)

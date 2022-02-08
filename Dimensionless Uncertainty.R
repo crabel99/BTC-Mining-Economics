@@ -1,5 +1,5 @@
 # Estimate the dimensionless Plank constant for the bitcoin network
-# \Delta \frac{1}{t} \Delta t \geq \frac{1}{2}
+# \Delta \frac{1}{t} \Delta t \geq \frac{1}{4\pi}
 
 library(dplyr)
 library(invgamma)
@@ -22,7 +22,7 @@ for (i in 1:n_diff) {
   fit <- fitdist(eval_set$delta_t,
                  distr = "gamma",
                  method = "mle")
-  diff_periods[i, 4:6] <- c(sqrt(4*diff_periods[i,2]*diff_periods[i,3]),
+  diff_periods[i, 4:6] <- c(sqrt(diff_periods[i,2]*diff_periods[i,3]),
                             fit$estimate)
                             # fit_inv$estimate)
 }

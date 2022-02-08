@@ -15,8 +15,7 @@ If you are using RStudio , you will need to enter `renv::restore()` in the conso
 Once you have the environment set up and the database populated, you will need to open `Bitcoin Marginal Utility.R` and execute it from source.
 This will run the entire file and provide you wil the graphical outputs seen in the `*.pdf`'s in this repository.
 
-The Bitcoin price history was downloaded from the [St. Louis Federal Reserve Bank](https://fred.stlouisfed.org/series/CBBTCUSD) and only goes back to 2014.
-If you know of a more comprehensive data source. please open an issue so that I can update the model.
+The Bitcoin price history was downloaded from the [CoinMetrics](https://community-api.coinmetrics.io/).
 
 This project is covered under [Creative Commons 4.0-BY](https://creativecommons.org/licenses/by/4.0/legalcode).
 Please feel free to do with this as you will, but please remember to cite this work appropriately.
