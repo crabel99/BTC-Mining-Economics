@@ -114,11 +114,15 @@ api_response <- httr::GET(url = api_request)
 httr::http_status(api_response)
 api_content <- httr::content(api_response)
 api_data <- bind_rows(api_content)
+
+# The 12 hour shift is so that the daily moving average of marginal utility
+# corresponds to the average for the day.
 api_data$year <- api_data$time %>% ymd_hms() %>% decimal_date() + 12/8766
 api_data$PriceUSD <- api_data$PriceUSD %>% as.numeric()
 api_data <- api_data %>% subset(select = -asset) %>% subset(select = -time)
 
 rm(api_url, api_endpint, api_query, api_request, api_response, api_content)
+
 
 # Local parsed blockchain
 # The connection is established using a DSN to the appropriate database. See:
@@ -126,15 +130,13 @@ rm(api_url, api_endpint, api_query, api_request, api_response, api_content)
 
 conn <- DBI::dbConnect(odbc::odbc(), "Abe", timeout = 10)
 
-latest_block <- DBI::dbGetQuery(conn,
-  "SELECT height
-  FROM blocks
-  WHERE height IS NOT NULL AND
-  orphan = false
-  ORDER BY height DESC LIMIT 1") %>%
-  as.integer()
+if (exists("latest_block")) {
+  query_where_stmt <- paste("height >",latest_block, "AND")
+} else {
+  query_where_stmt <- ""
+}
 
-headers <- DBI::dbGetQuery(conn,
+query_result <- DBI::dbGetQuery(conn,
   paste("
         SELECT
         	b.height AS height,
@@ -146,18 +148,19 @@ headers <- DBI::dbGetQuery(conn,
         LEFT JOIN txouts AS o ON bt.tx_id = o.tx_id",
         # "WHERE block_height < 200000 AND block_height > 195000 AND
         # "WHERE height < ", 30000, " AND
-        "WHERE height < ", latest_block, " AND
+        "WHERE ", query_where_stmt, "
           bt.n = 0 AND b.orphan = false
         GROUP BY bt.tx_id, b.height, b.time, b.bits
         ORDER BY b.height ASC"))
 
 # Use the smallest data class possible to save on storage space
-headers$height <- as.integer(headers$height)
-headers$time <- as.integer(headers$time)
-headers$bits <- as.integer(headers$bits)
+query_result$height <- as.integer(query_result$height)
+query_result$time <- as.integer(query_result$time)
+query_result$bits <- as.integer(query_result$bits)
 
 DBI::dbDisconnect(conn = conn)
 rm(conn)
+
 
 ################################################################################
 # Mining Efficiency Model
@@ -179,19 +182,27 @@ lines(hash[,1], gen_logistic(c(0.01,coef(params_hash)), hash[, 1]), col = 1)
 ################################################################################
 # Finalize Model Data and Estimates
 ################################################################################
-headers[ , "total_sats"] <- numeric()
-headers[ , "hash_rate"] <- numeric()
-headers[ , "delta_t"] <- numeric()
-headers[ , "marginal_utility"] <- numeric()
-headers$year <- headers$time %>% as_datetime() %>% decimal_date()
+# Allocate memory for values to be generated
+query_result[ , "total_sats"] <- numeric()
+query_result[ , "hash_rate"] <- numeric()
+query_result[ , "delta_t"] <- numeric()
+query_result[ , "marginal_utility"] <- numeric()
+query_result$year <- query_result$time %>% as_datetime() %>% decimal_date()
+
+# Update existing data
+if (exists("latest_block")) {
+  headers <- rbind(headers[, 1:9], query_result)
+} else {
+  headers <- query_result
+}
 
 # Initialize parallelization
 ncores = detectCores() - 3
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 
-headers <- foreach(
-  block = iter(headers, by = "row"),
+query_result <- foreach(
+  block = iter(query_result, by = "row"),
   .export = c("headers", "params_hash"),
   .combine = rbind) %dopar% {
     i <- which(headers$height == block$height)
@@ -210,11 +221,14 @@ headers <- foreach(
     block
   }
 
+
 stopCluster(cl)
+rm(cl, ncores, query_result)
 
-rm(cl, ncores)
+headers[is.na(headers$total_sats),] <- query_result
+latest_block <- tail(headers[, 1], n = 1)
 
-
+# Estimate the MTP Delta t for a given mining epoch
 time_data <- headers[
   headers[
     closest(headers$time,1666298078) == headers$time, 3] == headers$bits, 7]
@@ -237,6 +251,7 @@ rm(temp, tempData)
 # averages are symmetric. For the daily average use 143. For the bi-weekly,
 # use the off-by-one bug value of 2015. And for the monthly, use 1/12th of an
 # 8766-hour year.
+
 headers <- headers %>%
   dplyr::mutate(util_01da = zoo::rollmean(marginal_utility, k = 143, fill = NA),
                 util_14da = zoo::rollmean(marginal_utility,
@@ -357,7 +372,7 @@ plot_BTCUSD <- ggplot(api_data, aes(x = marginal_utility, y = PriceUSD)) +
                        scales::trans_format('log10',
                                             scales::math_format(10^.x))) +
   labs(title = "Bitcoin Price to Marginal Utility",
-       subtitle = TeX("(Dec 2014 - Present) Fitted Model: $price =1.564\\cdot 10^{-5}\\lambda^{1.667}$"),
+       subtitle = TeX("(18 July 2010 - Present) Fitted Model: $price =0.4988\\lambda^{0.7750}$"),
        color = "Legend",
        x = TeX("$\\lambda \\left[MJ/BTC\\right]$"),
        y = "Price [USD/BTC]")
