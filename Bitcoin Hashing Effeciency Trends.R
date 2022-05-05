@@ -112,7 +112,7 @@ plot_miner_eff <- ggplot(hash, aes(x = t, y = y)) +
                        scales::trans_format('log10',
                                             scales::math_format(10^.x))) +
   labs(title = "Bitcoin Miner Performance",
-       subtitle = TeX("Fitted Model: $\\eta(t) = 0.01\\left[MH/J\\right] + \\frac{42730\\left[MH/J\\right]}{1 + e^{-1.258\\left[1/a\\right](t - 2019.2\\left[a\\right])}}$"),
+       subtitle = TeX("Fitted Model: $\\nu(t)^{-1} = 0.01\\left[MH/J\\right] + \\frac{42730\\left[MH/J\\right]}{1 + e^{-1.258\\left[1/a\\right](t - 2019.2\\left[a\\right])}}$"),
        color = "Legend",
        x = "year",
        y = "Miner Performance [MH/J]")

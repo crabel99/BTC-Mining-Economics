@@ -223,10 +223,11 @@ query_result <- foreach(
 
 
 stopCluster(cl)
-rm(cl, ncores, query_result)
 
 headers[is.na(headers$total_sats),] <- query_result
 latest_block <- tail(headers[, 1], n = 1)
+
+rm(cl, ncores, query_result)
 
 # Estimate the MTP Delta t for a given mining epoch
 time_data <- headers[
@@ -372,7 +373,12 @@ plot_BTCUSD <- ggplot(api_data, aes(x = marginal_utility, y = PriceUSD)) +
                        scales::trans_format('log10',
                                             scales::math_format(10^.x))) +
   labs(title = "Bitcoin Price to Marginal Utility",
-       subtitle = TeX("(18 July 2010 - Present) Fitted Model: $price =0.4988\\lambda^{0.7750}$"),
+       subtitle = TeX(paste("(18 July 2010 - Present) Fitted Model: $price =",
+                            round(exp(fit$coefficients[1]), digits = 4),
+                            "\\lambda^{",
+                            round(fit$coefficients[2], digits = 4),
+                            "}$",
+                            sep = "")),
        color = "Legend",
        x = TeX("$\\lambda \\left[MJ/BTC\\right]$"),
        y = "Price [USD/BTC]")
@@ -399,6 +405,7 @@ plot(fit_norm_test)
 # Project Bitcoin Marginal Utility
 #######################################
 proj_data <- headers[headers$year > 2014, ]
+proj_data$year <- proj_data$year - 2014
 proj_data <- subset(proj_data, select = c(height, year, marginal_utility))
 proj_data$ln_util <- log(proj_data$marginal_utility)
 proj_split <- sample.split(proj_data$marginal_utility, SplitRatio = 0.8)
@@ -420,13 +427,14 @@ proj_R2 <- 1 - sum(proj_error^2)/sum((Y_proj_test - mean(Y_proj_test))^2)
 proj_Adj_R2 <- 1 - (proj_mean_squared_error/var(Y_proj_test))
 proj_fit_norm_test <- fitdist(proj_error, distr = "norm", method = "mle")
 plot(proj_fit_norm_test)
+proj_data$year <- proj_data$year + 2014
 
 # Add new data series to plot
 plot_util <- plot_util +
   geom_line(mapping = aes(x = year, y = pred_util),
             data = proj_data,
             na.rm = TRUE,
-            size = 1.5,
+            size = 1.0,
             color = "#bc5090")
 
 # Plot Outputs
