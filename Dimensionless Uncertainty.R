@@ -3,6 +3,7 @@
 
 library(dplyr)
 library(ggplot2)
+library(latex2exp)
 
 
 n_diff <- as.integer(nrow(headers)/2016)

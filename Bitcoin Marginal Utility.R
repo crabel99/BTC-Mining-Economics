@@ -288,11 +288,11 @@ plot_util <- ggplot(headers, aes(x = year, y = marginal_utility)) +
                        labels = c("Histogram",
                                   "14-day MA",
                                   "Halvenings")) +
-  labs(title = "Marginal Utility of Bitcoin [MJ/BTC]",
+  labs(title = "Marginal Value of Bitcoin [MJ/BTC]",
        subtitle = "All Time: histogram with 14-day moving average",
        color = "Legend",
        x = "Year",
-       y = "Marginal Utility [MJ/BTC]")
+       y = "Marginal Value [MJ/BTC]")
 
 ################################################################################
 # Model Price Movements as a Function of Marginal Utility
@@ -358,12 +358,45 @@ fitted_data <- data_input
 fitted_data$PriceUSD <- exp(fit$coefficients[1]) *
   fitted_data$marginal_utility ^ fit$coefficients[2]
 
+latest_point <- tail(api_data, n = 144)
+latest_point <- data.frame("PriceUSD" = sum(latest_point[,1]) / 144,
+                           "marginal_utility" = sum(latest_point[,3]) / 144)
+
+plot_P_m <- headers %>% ggplot(aes(x = total_sats, y = marginal_utility)) +
+  geom_jitter(color = "#7895aa") +
+  # geom_density_2d(na.rm = TRUE,
+  #                 size = 0.25,
+  #                 color = "#7895aa",
+  #                 show.legend = TRUE) +
+  scale_x_continuous(trans = 'log10',
+                     labels =
+                       scales::trans_format('log10',
+                                            scales::math_format(10^.x))) +
+  scale_y_continuous(trans = 'log10',
+                     labels =
+                       scales::trans_format('log10',
+                                            scales::math_format(10^.x)))
+
+ggsave(
+  "BTC P-m.jpg",
+  plot = plot_P_m,
+  path = "images/",
+  scale = 1,
+  width = 10,
+  height = 5.625,
+  units = "in",
+  dpi = "print"
+)
+
 plot_BTCUSD <- ggplot(api_data, aes(x = marginal_utility, y = PriceUSD)) +
   geom_jitter(color = "#7895aa") +
   geom_line(data = fitted_data,
             na.rm = TRUE,
             size = 1,
             color = "#004c6d") +
+  geom_point(data = latest_point,
+             size = 3,
+             color = "red") +
   scale_x_continuous(trans = 'log10',
                      labels =
                        scales::trans_format('log10',
@@ -372,15 +405,15 @@ plot_BTCUSD <- ggplot(api_data, aes(x = marginal_utility, y = PriceUSD)) +
                      labels =
                        scales::trans_format('log10',
                                             scales::math_format(10^.x))) +
-  labs(title = "Bitcoin Price to Marginal Utility",
+  labs(title = "Bitcoin Price to Marginal Value",
        subtitle = TeX(paste("(18 July 2010 - Present) Fitted Model: $price =",
                             round(exp(fit$coefficients[1]), digits = 4),
-                            "\\lambda^{",
+                            " P^{",
                             round(fit$coefficients[2], digits = 4),
                             "}$",
                             sep = "")),
        color = "Legend",
-       x = TeX("$\\lambda \\left[MJ/BTC\\right]$"),
+       x = TeX("$P \\left[MJ/BTC\\right]$"),
        y = "Price [USD/BTC]")
 
 #######################################
@@ -402,7 +435,7 @@ fit_norm_test <- fitdist(error, distr = "norm", method = "mle")
 plot(fit_norm_test)
 
 #######################################
-# Project Bitcoin Marginal Utility
+# Project Bitcoin Marginal Value
 #######################################
 proj_data <- headers[headers$year > 2014, ]
 proj_data$year <- proj_data$year - 2014
@@ -439,5 +472,50 @@ plot_util <- plot_util +
 
 # Plot Outputs
 plot_util
+ggsave(
+  "BTC Marginal Value.pdf",
+  plot = plot_util,
+  path = "images/",
+  scale = 1,
+  width = 10,
+  height = 5.625,
+  units = "in",
+  dpi = "retina"
+)
+ggsave(
+  "BTC Marginal Value.jpg",
+  plot = plot_util,
+  path = "images/",
+  scale = 1,
+  width = 10,
+  height = 5.625,
+  units = "in",
+  dpi = "print"
+)
+
 
 plot_BTCUSD
+ggsave(
+  "BTC Marginal Value-Price.pdf",
+  plot = plot_BTCUSD,
+  path = "images/",
+  scale = 1,
+  width = 10,
+  height = 5.625,
+  units = "in",
+  dpi = "retina"
+)
+ggsave(
+  "BTC Marginal Value-Price.jpg",
+  plot = plot_BTCUSD,
+  path = "images/",
+  scale = 1,
+  width = 10,
+  height = 5.625,
+  units = "in",
+  dpi = "print"
+)
+
+# Fit Summaries
+print(summary(proj_fit))
+print(summary(fit))
