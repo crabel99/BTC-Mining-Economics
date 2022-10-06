@@ -358,9 +358,9 @@ fitted_data <- data_input
 fitted_data$PriceUSD <- exp(fit$coefficients[1]) *
   fitted_data$marginal_utility ^ fit$coefficients[2]
 
-latest_point <- tail(api_data, n = 144)
-latest_point <- data.frame("PriceUSD" = sum(latest_point[,1]) / 144,
-                           "marginal_utility" = sum(latest_point[,3]) / 144)
+latest_point <- tail(api_data, n = 1)
+latest_point <- data.frame("PriceUSD" = latest_point[1,1],
+                           "marginal_utility" = latest_point[1,3])
 
 plot_P_m <- headers %>% ggplot(aes(x = total_sats, y = marginal_utility)) +
   geom_jitter(color = "#7895aa") +
@@ -435,7 +435,7 @@ fit_norm_test <- fitdist(error, distr = "norm", method = "mle")
 plot(fit_norm_test)
 
 #######################################
-# Project Bitcoin Marginal Value
+# Projected Bitcoin Marginal Value
 #######################################
 proj_data <- headers[headers$year > 2014, ]
 proj_data$year <- proj_data$year - 2014

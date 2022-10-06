@@ -111,13 +111,32 @@ plot_miner_eff <- ggplot(hash, aes(x = t, y = y)) +
                      labels =
                        scales::trans_format('log10',
                                             scales::math_format(10^.x))) +
-  labs(title = "Bitcoin Miner Performance",
-       subtitle = TeX("Fitted Model: $\\nu(t)^{-1} = 0.01\\left[MH/J\\right] + \\frac{42730\\left[MH/J\\right]}{1 + e^{-1.258\\left[1/a\\right](t - 2019.2\\left[a\\right])}}$"),
+  labs(title = "Bitcoin Miner Inverse Potential",
+       subtitle = TeX("Fitted Model: $V(t)^{-1} = 0.01\\left[MH/J\\right] + \\frac{42730\\left[MH/J\\right]}{1 + e^{-1.258\\left[1/a\\right](t - 2019.2\\left[a\\right])}}$"),
        color = "Legend",
        x = "year",
-       y = "Miner Performance [MH/J]")
+       y = "Miner Inverse Potential [MH/J]")
 plot_miner_eff
-
+ggsave(
+  "BTC Miner Potential.pdf",
+  plot = plot_miner_eff,
+  path = "images/",
+  scale = 1,
+  width = 10,
+  height = 5.625,
+  units = "in",
+  dpi = "retina"
+)
+ggsave(
+  "BTC Miner Potential.jpg",
+  plot = plot_miner_eff,
+  path = "images/",
+  scale = 1,
+  width = 10,
+  height = 5.625,
+  units = "in",
+  dpi = "retina"
+)
 # General Processor Efficiency
 t <- seq(2001, length.out = 22)
 processor_eff <- data.frame(t)
