@@ -20,7 +20,7 @@ for (i in 1:n_diff) {
     eval_set <- eval_set[-1,] %>% subset(delta_t < 3 * 3600)
   }
   # Dimensionless hashes
-  eval_set$hash_rate <- mean(eval_set$delta_t) / eval_set$delta_t
+  eval_set$hash_rate <- 1/eval_set$delta_t#mean(eval_set$delta_t) / eval_set$delta_t
   diff_periods[i, 1:3] <- c(i, var(eval_set$delta_t), var(eval_set$hash_rate))
   fit <- fitdist(eval_set$delta_t,
                  distr = "gamma",
@@ -74,13 +74,42 @@ plot_hbar_fit <- ggplot(data = df, aes(x)) +
        subtitle = TeX(paste("Fitted Model: Block ",
                             40*2016,
                             " - Present)  $h \\sim T(\\mu,\\sigma,\\nu)=",
-                            "T(",round(params$m, 0),
-                            ",", round(params$s,1),
+                            "T(",round(params$m, 3),
+                            ",", round(params$s,3),
                             ",", round(params$df,1),
                             ")$",
                             sep = "")),
        color = "Legend",
        x = TeX("$2 \\sigma_t \\, \\sigma_H$"),
+       y = "density")
+
+df_alpha <- data.frame(x = 2 / (diff_periods$alpha_t - 1) *
+  sqrt(diff_periods$alpha_t / (diff_periods$alpha_t - 2)))
+
+fit_alpha <- fitdist(df_alpha$x,
+                     "t.scaled",
+                     start = list(df = 3,
+                                  mean = mean(df_alpha$x),
+                                  sd = sd(df_alpha$x)))
+
+plot_alpha_hbar <- ggplot(data = df_alpha, aes(x)) +
+  geom_histogram(aes(y = stat(density)),
+                 color = "black",
+                 fill = "white",
+                 bins = 70) +
+  geom_density(color = "black", fill = "grey", alpha = .7) +
+  stat_function(fun = dt.scaled,
+                args = fit_alpha$estimate, color = "red") +
+  xlim(0,1) +
+  labs(title = "Mining Plank's Constant Distribution",
+       subtitle = TeX(paste("Fitted Model: $h \\sim T(\\mu,\\sigma,\\nu)=",
+                            "T(",round(fit_alpha$estimate[2], 3),
+                            ",", round(fit_alpha$estimate[3],3),
+                            ",", round(fit_alpha$estimate[1],3),
+                            ")$",
+                            sep = "")),
+       color = "Legend",
+       x = TeX("$\\frac{2}{\\alpha - 1}\\sqrt{\\frac{\\alpha}{\\alpha - 2}}$"),
        y = "density")
 
 plot_hbar
