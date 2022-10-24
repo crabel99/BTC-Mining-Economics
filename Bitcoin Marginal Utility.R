@@ -254,22 +254,22 @@ rm(temp, tempData)
 # 8766-hour year.
 
 headers <- headers %>%
-  dplyr::mutate(util_01da = zoo::rollmean(.$marginal_utility, k = 143, fill = NA),
-                util_14da = zoo::rollmean(.$marginal_utility,
+  dplyr::mutate(util_01da = zoo::rollmean(marginal_utility, k = 143, fill = NA),
+                util_14da = zoo::rollmean(marginal_utility,
                                           k = 2015,
                                           fill = NA),
-                util_30da = zoo::rollmean(.$marginal_utility,
+                util_30da = zoo::rollmean(marginal_utility,
                                           k = 4383,
                                           fill = NA))
 
 
-plot_util <- headers %>% ggplot(aes(x = .$year, y = .$marginal_utility)) +
+plot_util <- headers %>% ggplot(aes(x = year, y = marginal_utility)) +
   # stat_density_2d(aes(fill = factor(stat(level))), geom = "polygon") +
   geom_density_2d(na.rm = TRUE,
                   size = 0.25,
                   color = "#7895aa",
                   show.legend = TRUE) +
-  geom_line(mapping = aes(x = .$year, y = .$util_14da),
+  geom_line(mapping = aes(x = year, y = util_14da),
             na.rm = TRUE,
             size = 1,
             color = "#004c6d") +
@@ -363,7 +363,7 @@ latest_point <- tail(api_data, n = 1)
 latest_point <- data.frame("PriceUSD" = latest_point[1,1],
                            "marginal_utility" = latest_point[1,3])
 
-plot_P_m <- headers %>% ggplot(aes(x = .$total_sats, y = .$marginal_utility)) +
+plot_P_m <- headers %>% ggplot(aes(x = total_sats, y = marginal_utility)) +
   geom_jitter(color = "#7895aa") +
   # geom_density_2d(na.rm = TRUE,
   #                 size = 0.25,
@@ -389,7 +389,7 @@ ggsave(
   dpi = "print"
 )
 
-plot_BTCUSD <- ggplot(api_data, aes(x = .$marginal_utility, y = .$PriceUSD)) +
+plot_BTCUSD <- ggplot(api_data, aes(x = marginal_utility, y = PriceUSD)) +
   geom_jitter(color = "#7895aa") +
   geom_line(data = fitted_data,
             na.rm = TRUE,
@@ -465,7 +465,7 @@ proj_data$year <- proj_data$year + 2014
 
 # Add new data series to plot
 plot_util <- plot_util +
-  geom_line(mapping = aes(x = .$year, y = .$pred_util),
+  geom_line(mapping = aes(x = year, y = pred_util),
             data = proj_data,
             na.rm = TRUE,
             size = 1.0,
